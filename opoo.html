@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>3D Audio Visualizer — Single File (Module Fix)</title>
+  <style>
+    :root {
+      --bg: #253b61; --panel: #98a6d2; --text: #d7e3ff; --muted:#8ea1c4;
+      --accent: #0a0b0b; --accent2:#7366a7; --good:#34d399; --warn:#f59e0b; --bad:#ef4444;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; background: radial-gradient(1200px 800px at 60% 20%, #073ed6 0%, #0f1724 50%, #07090d 100%);
+      color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      overflow: hidden;
+    }
+    #app { position: fixed; inset: 0; display: grid; grid-template-columns: 340px 1fr; }
+    #ui { background: linear-gradient(180deg, rgba(12, 11, 11, 0.04), rgba(182, 95, 95, 0.02)); border-right: 1px solid rgba(255,255,255,0.06); backdrop-filter: blur(6px);
+          padding: 16px; overflow: auto; }
+    #scene { position: relative; }
+    canvas { display: block; width: 100%; height: 100%; }
+
+    h1 { font-size: 18px; margin: 0 0 8px; font-weight: 700; letter-spacing: 0.2px; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+    .group { border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); padding: 12px; border-radius: 14px; margin-bottom: 12px; }
+    label { font-size: 13px; color: var(--text); }
+    select, input[type="range"], input[type="number"], input[type="text"] {
+      width: 100%; background: #0e1321; color: var(--text); border: 1px solid rgba(255,255,255,0.1);
+      padding: 8px 10px; border-radius: 10px; outline: none;
+    }
+    input[type="range"] { padding: 0; height: 30px; }
+    .btn {
+      appearance: none; border: 1px solid rgba(255,255,255,0.12); background: #141a2c; color: var(--text);
+      padding: 10px 12px; border-radius: 12px; cursor: pointer; font-weight: 600;
+      transition: transform .05s ease, background .2s ease, border-color .2s ease;
+    }
+    .btn:hover { background: #19203a; }
+    .btn:active { transform: translateY(1px); }
+    .btn.primary { background: linear-gradient(135deg, #1c243d, #172038); border-color: rgba(103,232,249,.35); box-shadow: inset 0 0 0 1px rgba(103,232,249,.15); }
+    .btn.rec { background: linear-gradient(135deg, #2a1522, #1c0f17); border-color: rgba(239,68,68,.35); box-shadow: inset 0 0 0 1px rgba(239,68,68,.15); }
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 999px; font-size: 12px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); }
+    .row2 { display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; }
+    .row3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+    .switch { display:inline-flex; align-items:center; gap:8px; font-size:12px; color:var(--muted)}
+    .switch input { width: 36px; height: 18px; }
+    .footer { position: absolute; left: 12px; bottom: 12px; right: 12px; display:flex; align-items:center; justify-content:space-between; opacity:.8 }
+    .link { color: var(--accent); text-decoration: none; }
+    .small { font-size: 11px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <aside id="ui">
+      <h1>3D Audio Visualizer</h1>
+      <div class="muted" style="margin-bottom:12px">Mic-in · 360° camera · 16 visual modes · WebM recording (somatic · ritual · synesthesia)</div>
+
+      <div class="group">
+        <div class="row2">
+          <button id="micBtn" class="btn primary">🎙️ Enable Microphone</button>
+          <button id="recordBtn" class="btn rec">⏺️ Record</button>
+        </div>
+        <div class="small muted" style="margin-top:8px">Tip: Start the mic first. Recording saves a .webm file.</div>
+      </div>
+
+      <div class="group">
+        <label for="mode">Visual Mode</label>
+        <select id="mode"></select>
+        <div class="row" style="margin-top:8px">
+          <label>Auto-rotate</label>
+          <label class="switch"><input id="autorotate" type="checkbox" checked> On</label>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <label>Spin speed</label>
+          <input id="spin" type="range" min="0" max="2" step="0.01" value="0.35" />
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="row"><label>Sensitivity</label><span class="muted" id="sensVal">1.00</span></div>
+        <input id="sensitivity" type="range" min="0.2" max="4" step="0.01" value="1" />
+        <div class="row" style="margin-top:8px"><label>Smoothing</label><span class="muted" id="smoothVal">0.8</span></div>
+        <input id="smoothing" type="range" min="0" max="0.95" step="0.01" value="0.8" />
+        <div class="row" style="margin-top:8px"><label>FFT Size</label><span class="muted" id="fftVal">2048</span></div>
+        <input id="fft" type="range" min="512" max="32768" step="512" value="2048" />
+      </div>
+
+      <div class="group">
+        <div class="row2">
+          <button id="resetCam" class="btn">🔄 Reset Camera</button>
+          <button id="clearBtn" class="btn">🧹 Clear / Rebuild</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="row"><label>One-Spin Record (s)</label><input id="spinDur" type="number" value="10" min="3" max="120"/></div>
+        <div class="row2" style="margin-top:8px">
+          <button id="spinRecord" class="btn rec">🎞️ Spin + Record</button>
+          <a id="downloadLink" class="btn" href="#" download style="display:none">⬇️ Download</a>
+        </div>
+      </div>
+
+      <div class="group small">
+        <div class="pill">⚠️ If you don't hear/see anything, try increasing volume or sensitivity.</div>
+      </div>
+
+      <div class="small muted">Keyboard: [1–0] first 10 modes · [ [ / ] ] prev/next mode · [Space] toggle rotate · [R] record · [C] reset camera</div>
+    </aside>
+
+    <main id="scene"></main>
+  </div>
+
+  <!-- Import map so "three" bare specifier resolves on CDN -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.161.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.161.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <!-- App (ES module) -->
+  <script type="module">
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+  // (Optional) expose for debugging
+  window.THREE = THREE;
+
+  // ---------- Utilities ----------
+  const lerp = (a,b,t)=>a+(b-a)*t;
+  const map = (v, inMin, inMax, outMin, outMax)=> outMin + ( (v-inMin)/(inMax-inMin) )*(outMax-outMin);
+
+  // ---------- Core App ----------
+  const sceneEl = document.getElementById('scene');
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  sceneEl.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x0b0e13, 0.06);
+
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 2000);
+  camera.position.set(0, 2.8, 7);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.06;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.35;
+
+  const resize = ()=>{
+    const w = sceneEl.clientWidth;
+    const h = sceneEl.clientHeight;
+    renderer.setSize(w,h,false);
+    camera.aspect = Math.max(0.0001, w/h); camera.updateProjectionMatrix();
+  };
+  window.addEventListener('resize', resize, { passive: true });
+  resize();
+
+  // Lights
+  const hemi = new THREE.HemisphereLight(0x89a, 0x112233, 0.8);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.6); dir.position.set(5,7,3);
+  scene.add(hemi, dir);
+
+  // Pointer-driven interactive light ("somatic" feel)
+  const pointerLight = new THREE.SpotLight(0x88ccff, 1.2, 20, Math.PI/6, 0.3, 1.0);
+  pointerLight.position.set(0, 3.5, 3.5);
+  pointerLight.target.position.set(0,0,0);
+  scene.add(pointerLight, pointerLight.target);
+
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
+  const ground = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
+  const pointerVec = new THREE.Vector3(0,0,0);
+  renderer.domElement.addEventListener('mousemove', (e)=>{
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((e.clientX-rect.left)/rect.width)*2 - 1;
+    mouse.y = -((e.clientY-rect.top)/rect.height)*2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const hit = new THREE.Vector3();
+    raycaster.ray.intersectPlane(ground, hit);
+    if(hit){ pointerVec.copy(hit); pointerLight.position.lerp(new THREE.Vector3(hit.x, 3.2, hit.z+0.01), 0.25); pointerLight.target.position.lerp(hit, 0.3); }
+  }, { passive:true });
+  window.__pointerVec = pointerVec;
+
+  // Audio
+  let audioCtx, analyser, dataArray, timeArray, srcNode;
+
+  function setupAudio(){
+    if(audioCtx) return;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if(!Ctx){ alert('Web Audio API not supported in this browser.'); return; }
+    audioCtx = new Ctx();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = parseInt(fft.value);
+    analyser.smoothingTimeConstant = parseFloat(smoothing.value);
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    timeArray = new Uint8Array(analyser.fftSize);
+  }
+
+  async function enableMic(){
+    try{
+      setupAudio();
+      // Must be called from a user gesture
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+        video: false
+      });
+      const mic = audioCtx.createMediaStreamSource(stream);
+      srcNode = mic; mic.connect(analyser);
+      micBtn.textContent = '✅ Mic Enabled';
+      micBtn.disabled = true; micBtn.classList.remove('primary');
+    }catch(err){
+      console.error(err);
+      alert('Microphone permission denied or unavailable. Please run over HTTPS/localhost and allow mic access.');
+    }
+  }
+
+  // ---------- Visual Modes (16) ----------
+  const root = new THREE.Group();
+  scene.add(root);
+
+  const modes = [];
+
+  function clearRoot(){
+    while(root.children.length){
+      const obj = root.children.pop();
+      obj.traverse(o=>{
+        if(o.geometry) o.geometry.dispose();
+        if(o.material){
+          if(o.material.uniforms){/* noop */ }
+          o.material.dispose();
+        }
+      });
+    }
+  }
+
+  function sampleBassMidTreble(freq){
+    const n = freq.length; if(!n) return {bass:0, mid:0, treb:0};
+    const bass = avg(freq, 0, Math.floor(n*0.1));
+    const mid  = avg(freq, Math.floor(n*0.1), Math.floor(n*0.4));
+    const treb = avg(freq, Math.floor(n*0.4), n);
+    return { bass, mid, treb };
+  }
+  function avg(a, s, e){ let sum=0, c=0; for(let i=s;i<e;i++){ sum+=a[i]; c++; } return c?sum/c:0; }
+
+  function addMode(name, builder){ modes.push({ name, builder }); }
+
+  // (1) Spectrum Bars — 3D equalizer towers
+  addMode('Spectrum Bars', ()=>{
+    const g = new THREE.Group();
+    const cols = 48, rows = 6, gap = 0.16, size = 0.24;
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        const geo = new THREE.BoxGeometry(size,size,size);
+        const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(c/cols, 0.5, 0.55), metalness: 0.2, roughness: 0.4 });
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set((c-(cols/2))* (size+gap), 0, (r-(rows/2))* (size+gap));
+        g.add(m);
+      }
+    }
+    return {
+      object: g,
+      update(freq){
+        const {bass, mid, treb} = sampleBassMidTreble(freq);
+        let i=0; g.children.forEach((m)=>{
+          const idx = Math.floor(map(i++, 0, g.children.length, 0, freq.length-1));
+          const v = freq[idx]/255;
+          m.scale.y = 0.3 + v*5 * sensitivityVal();
+          m.material.emissive = new THREE.Color().setHSL(0.6+v*0.4, 0.9, 0.4+v*0.2);
+        });
+        g.rotation.y += 0.002 + (bass+mid+treb)/255*0.004;
+      }
+    }
+  });
+
+  // (2) Waveform Ribbon — flowing line
+  addMode('Waveform Ribbon', ()=>{
+    const points = new Array(256).fill(0).map((_,i)=>new THREE.Vector3(map(i,0,255,-6,6), 0, 0));
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    const mat = new THREE.LineBasicMaterial({ linewidth: 2 });
+    const line = new THREE.Line(geo, mat);
+    return {
+      object: line,
+      update(){
+        if(!analyser) return;
+        analyser.getByteTimeDomainData(timeArray);
+        const pos = line.geometry.attributes.position;
+        for(let i=0;i<pos.count;i++){
+          const t = timeArray[i]/255; // 0..1
+          pos.setY(i, (t-0.5)*4 * sensitivityVal());
+          pos.setZ(i, Math.sin(i*0.08 + performance.now()*0.002)*0.6);
+        }
+        pos.needsUpdate = true;
+        line.material.color.setHSL((performance.now()*0.0001)%1, 0.8, 0.6);
+      }
+    }
+  });
+
+  // (3) Particle Explosion — bursts on peaks
+  addMode('Particle Explosion', ()=>{
+    const count = 3000;
+    const geo = new THREE.BufferGeometry();
+    const pos = new Float32Array(count*3);
+    const vel = new Float32Array(count*3);
+    for(let i=0;i<count;i++){
+      pos[i*3+0]= (Math.random()-0.5)*2;
+      pos[i*3+1]= (Math.random()-0.5)*2;
+      pos[i*3+2]= (Math.random()-0.5)*2;
+      vel[i*3+0]= (Math.random()-0.5)*0.02;
+      vel[i*3+1]= (Math.random()-0.5)*0.02;
+      vel[i*3+2]= (Math.random()-0.5)*0.02;
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+    const mat = new THREE.PointsMaterial({ size: 0.03, transparent: true, opacity: 0.9 });
+    const pts = new THREE.Points(geo, mat);
+    let lastEnergy = 0;
+    return {
+      object: pts,
+      update(freq){
+        const energy = avg(freq,0,Math.floor(freq.length*0.25));
+        const threshold = 140;
+        if(energy - lastEnergy > 30 && energy>threshold){
+          for(let i=0;i<count;i++){
+            vel[i*3+0]+= (Math.random()-0.5)*0.6 * sensitivityVal();
+            vel[i*3+1]+= (Math.random()-0.5)*0.6 * sensitivityVal();
+            vel[i*3+2]+= (Math.random()-0.5)*0.6 * sensitivityVal();
+          }
+        }
+        lastEnergy = energy;
+        const p = geo.attributes.position.array;
+        for(let i=0;i<count;i++){
+          p[i*3+0]+= vel[i*3+0];
+          p[i*3+1]+= vel[i*3+1];
+          p[i*3+2]+= vel[i*3+2];
+          vel[i*3+0]+= -p[i*3+0]*0.0008;
+          vel[i*3+1]+= -p[i*3+1]*0.0008;
+          vel[i*3+2]+= -p[i*3+2]*0.0008;
+        }
+        geo.attributes.position.needsUpdate = true;
+        mat.size = 0.02 + map(energy,0,255,0,0.08);
+        mat.color.setHSL(0.02 + energy/255*0.12, 1, 0.6);
+      }
+    }
+  });
+
+  // (4) Liquid Surface — rippling plane
+  addMode('Liquid Surface', ()=>{
+    const w=80,h=80; const geo = new THREE.PlaneGeometry(10,10,w-1,h-1);
+    geo.rotateX(-Math.PI/2);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x3355ff, metalness: 0.2, roughness: 0.4, wireframe: true, transparent:true, opacity:0.75 });
+    const mesh = new THREE.Mesh(geo, mat);
+    return {
+      object: mesh,
+      update(freq){
+        const {mid, treb} = sampleBassMidTreble(freq);
+        const arr = geo.attributes.position;
+        for(let i=0;i<arr.count;i++){
+          const x = arr.getX(i); const z = arr.getZ(i);
+          const d = Math.hypot(x,z);
+          const y = Math.sin(d*2 + performance.now()*0.003 + mid*0.02) * 0.25 * sensitivityVal();
+          arr.setY(i,y);
+        }
+        arr.needsUpdate = true;
+        mesh.material.color.setHSL(0.55 + treb/255*0.2, 0.6, 0.55);
+      }
+    }
+  });
+
+  // (5) Fractal Tentacles — twisting arms
+  addMode('Fractal Tentacles', ()=>{
+    const g = new THREE.Group();
+    const arms = 10; const seg=80;
+    for(let a=0;a<arms;a++){
+      const path = new THREE.CatmullRomCurve3(new Array(seg).fill(0).map((_,i)=>new THREE.Vector3(0,i*0.06,0)));
+      const geo = new THREE.TubeGeometry(path, 80, 0.03, 8, false);
+      const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(a/arms,0.7,0.6), metalness:0.1, roughness:0.2, transparent:true, opacity:0.9 });
+      const m = new THREE.Mesh(geo, mat); m.position.y=-2; m.rotation.y = a/arms*Math.PI*2;
+      g.add(m);
+    }
+    return {
+      object: g,
+      update(freq){
+        const {bass, mid, treb} = sampleBassMidTreble(freq);
+        g.children.forEach((m,i)=>{
+          const r = 0.5 + (bass/255)*1.8 * sensitivityVal();
+          m.position.x = Math.cos(i*0.6 + performance.now()*0.0015)*r;
+          m.position.z = Math.sin(i*0.6 + performance.now()*0.0015)*r;
+          m.scale.setScalar(0.8 + mid/255*0.8);
+          m.material.emissive = new THREE.Color().setHSL(i/g.children.length, 1, 0.3+treb/255*0.2);
+        });
+      }
+    }
+  });
+
+  // (6) Rotating Sound Sphere — points on sphere
+  addMode('Rotating Sound Sphere', ()=>{
+    const count=2000; const geo=new THREE.BufferGeometry();
+    const pos = new Float32Array(count*3);
+    for(let i=0;i<count;i++){
+      const u = Math.random(); const v = Math.random();
+      const theta = 2*Math.PI*u; const phi = Math.acos(2*v-1);
+      const r = 2.2 + Math.random()*0.2;
+      pos[i*3+0]= r*Math.sin(phi)*Math.cos(theta);
+      pos[i*3+1]= r*Math.cos(phi);
+      pos[i*3+2]= r*Math.sin(phi)*Math.sin(theta);
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+    const mat=new THREE.PointsMaterial({ size:0.03, transparent:true, opacity:0.9 });
+    const pts=new THREE.Points(geo,mat);
+    return {
+      object: pts,
+      update(freq){
+        const {bass, treb} = sampleBassMidTreble(freq);
+        pts.rotation.y += 0.004 + bass/255*0.01;
+        mat.size = 0.02 + treb/255*0.05;
+        mat.color.setHSL(0.55 + treb/255*0.35, 0.9, 0.6);
+      }
+    }
+  });
+
+  // (7) Aurora Field — flowing ribbons
+  addMode('Aurora Field', ()=>{
+    const ribbons = new THREE.Group();
+    const N=5;
+    for(let i=0;i<N;i++){
+      const pts = new Array(100).fill(0).map((_,j)=>new THREE.Vector3(j*0.08-4, Math.sin(j*0.2+i)*0.2, i*0.5-1));
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      const mat = new THREE.LineBasicMaterial({ transparent:true, opacity:0.9 });
+      const line = new THREE.Line(geo,mat);
+      ribbons.add(line);
+    }
+    return {
+      object: ribbons,
+      update(freq){
+        ribbons.children.forEach((line,i)=>{
+          const pos=line.geometry.attributes.position; const phase = performance.now()*0.001 + i*0.6;
+          for(let j=0;j<pos.count;j++){
+            const f = freq[(j*4)%freq.length]/255;
+            pos.setY(j, Math.sin(j*0.2+phase)*0.3 + f*0.8 * sensitivityVal());
+          }
+          pos.needsUpdate=true;
+          line.material.color.setHSL(i/ribbons.children.length, 0.8, 0.6);
+        });
+        ribbons.rotation.y += 0.0025;
+      }
+    }
+  });
+
+  // (8) Geometry Distortion — sphere morph
+  addMode('Geometry Distortion', ()=>{
+    const geo = new THREE.IcosahedronGeometry(1.5, 4);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness:0.3, roughness:0.25, flatShading:false, wireframe:true, transparent:true, opacity:0.85 });
+    const mesh = new THREE.Mesh(geo, mat);
+    const base = geo.attributes.position.array.slice();
+    return {
+      object: mesh,
+      update(freq){
+        const a = geo.attributes.position.array;
+        for(let i=0;i<a.length;i+=3){
+          const ix=i/3; const f = freq[ix%freq.length]/255;
+          const nx = base[i+0]*(1+f*0.6*sensitivityVal());
+          const ny = base[i+1]*(1+f*0.6*sensitivityVal());
+          const nz = base[i+2]*(1+f*0.6*sensitivityVal());
+          a[i+0]=nx; a[i+1]=ny; a[i+2]=nz;
+        }
+        geo.attributes.position.needsUpdate=true; geo.computeVertexNormals();
+        mesh.rotation.y += 0.004; mesh.rotation.x += 0.002;
+        mesh.material.color.setHSL((0.62 + (performance.now()*0.0001)) % 1, 0.6, 0.6);
+      }
+    }
+  });
+
+  // (9) Voxel Beat Grid — up/down cubes
+  addMode('Voxel Beat Grid', ()=>{
+    const g = new THREE.Group();
+    const N=12; const s=0.28; const gap=0.06;
+    for(let z=0; z<N; z++){
+      for(let x=0; x<N; x++){
+        const m=new THREE.Mesh(new THREE.BoxGeometry(s,s,s), new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL((x+z)/(2*N),0.6,0.55) }));
+        m.position.set((x-N/2)*(s+gap), 0, (z-N/2)*(s+gap)); g.add(m);
+      }
+    }
+    return {
+      object: g,
+      update(freq){
+        let i=0; g.children.forEach((m)=>{
+          const v=freq[i%freq.length]/255; i++;
+          m.scale.y = 0.4 + v*4.5 * sensitivityVal();
+          m.material.emissive = new THREE.Color().setHSL(0.0+v*0.15,1,0.3);
+        });
+        g.rotation.y += 0.003;
+      }
+    }
+  });
+
+  // (10) Light Beam Storm — radial beams
+  addMode('Light Beam Storm', ()=>{
+    const g = new THREE.Group();
+    const beams = 160; const geo = new THREE.CylinderGeometry(0.02, 0.02, 4, 6, 1, true);
+    for(let i=0;i<beams;i++){
+      const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.2, emissive: 0x66aaff, emissiveIntensity: 0.6 });
+      const m = new THREE.Mesh(geo, mat);
+      const a = i/beams * Math.PI*2; const r = 0.5 + (i%5)*0.18;
+      m.position.set(Math.cos(a)*r, 0, Math.sin(a)*r);
+      m.rotation.z = Math.PI/2; m.lookAt(0,0,0);
+      g.add(m);
+    }
+    return {
+      object: g,
+      update(freq){
+        const energy = avg(freq,0,Math.floor(freq.length*0.4));
+        g.children.forEach((m,i)=>{
+          const f = freq[(i*3)%freq.length]/255;
+          m.scale.y = 0.8 + f*3.5 * sensitivityVal();
+          m.material.opacity = 0.12 + f*0.6;
+        });
+        g.rotation.y += 0.003 + energy/255*0.01;
+      }
+    }
+  });
+
+  // (11) Somatic Pulse Field — tactile point grid reacting to pointer
+  addMode('Somatic Pulse Field', ()=>{
+    const w=48, h=48; const spacing=0.25; const g=new THREE.Group();
+    const geo=new THREE.SphereGeometry(0.03, 8, 8);
+    for(let y=0;y<h;y++){
+      for(let x=0;x<w;x++){
+        const m=new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x2266ff, emissiveIntensity: 0.2 }));
+        m.position.set((x-w/2)*spacing, 0, (y-h/2)*spacing);
+        g.add(m);
+      }
+    }
+    return { object:g, update(freq){
+      const pv = window.__pointerVec || new THREE.Vector3();
+      let i=0; for(const m of g.children){
+        const d = m.position.distanceTo(new THREE.Vector3(pv.x,0,pv.z));
+        const f = freq[(i++)%freq.length]/255;
+        m.position.y = Math.max(0, 0.7*Math.exp(-d*1.2) * sensitivityVal()) + f*0.8*sensitivityVal();
+        m.material.emissiveIntensity = 0.15 + Math.max(0, 0.9*Math.exp(-d*1.6)) + f*0.5;
+      }
+      g.rotation.y += 0.002; } } });
+
+  // (12) NoiseEscape Tunnel — sine-noise tunnel you fly through
+  addMode('NoiseEscape Tunnel', ()=>{
+    const g=new THREE.Group(); const rings=80, seg=48, rad=2.2;
+    for(let i=0;i<rings;i++){
+      const ring=new THREE.Group();
+      for(let j=0;j<seg;j++){
+        const a=j/seg*Math.PI*2;
+        const box=new THREE.Mesh(new THREE.BoxGeometry(0.07,0.07,0.25), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x3355ff, emissiveIntensity: 0.3, transparent:true, opacity:0.85 }));
+        const r = rad + Math.sin(i*0.3 + j*0.4)*0.25;
+        box.position.set(Math.cos(a)*r, Math.sin(a*2)*0.15, Math.sin(a)*r); ring.add(box);
+      }
+      ring.position.z = -i*0.25; g.add(ring);
+    }
+    let z=0; return { object:g, update(freq){ const {bass, mid}=sampleBassMidTreble(freq); z += 0.02 + bass/255*0.06; g.children.forEach((ring,i)=>{ ring.position.z = (i*-0.25 + (z%20)); ring.rotation.z += 0.002 + mid/255*0.006; }); } } });
+
+  // (13) Ritual Halo — rotating rings and glyphs
+  addMode('Ritual Halo', ()=>{
+    const g=new THREE.Group(); const rings=5;
+    for(let r=0;r<rings;r++){
+      const ring=new THREE.Group(); const N=64; for(let i=0;i<N;i++){
+        const a=i/N*Math.PI*2;
+        const p=new THREE.Mesh(new THREE.TorusGeometry(0.02,0.006,8,12), new THREE.MeshStandardMaterial({ color: 0xffe9c6, emissive: 0xff8a3d, emissiveIntensity: 0.4 }));
+        p.position.set(Math.cos(a)*(1.0+r*0.25), 0.2*Math.sin(r*1.2), Math.sin(a)*(1.0+r*0.25)); ring.add(p);
+      }
+      g.add(ring);
+    }
+    return { object:g, update(freq){ const {bass, treb}=sampleBassMidTreble(freq); g.children.forEach((ring,i)=>{ ring.rotation.y += 0.002 + bass/255*0.01*(i+1); ring.children.forEach((p,j)=>{ p.material.emissiveIntensity = 0.2 + (freq[(j*3)%freq.length]/255)*0.9; }); }); g.rotation.x = Math.sin(performance.now()*0.0007)*0.2; } } });
+
+  // (14) Chromatic Synesthesia — hue maps to frequency centroid
+  addMode('Chromatic Synesthesia', ()=>{
+    const count=3000; const geo=new THREE.BufferGeometry(); const pos=new Float32Array(count*3);
+    for(let i=0;i<count;i++){ const r = 0.8 + Math.random()*2.2; const th=Math.random()*Math.PI*2; const ph=Math.acos(2*Math.random()-1); pos[i*3+0]= r*Math.sin(ph)*Math.cos(th); pos[i*3+1]= r*Math.cos(ph); pos[i*3+2]= r*Math.sin(ph)*Math.sin(th); }
+    geo.setAttribute('position', new THREE.BufferAttribute(pos,3)); const mat=new THREE.PointsMaterial({ size:0.025, transparent:true, opacity:0.95 }); const pts=new THREE.Points(geo, mat);
+    return { object:pts, update(freq){ let num=0, den=0; for(let i=0;i<freq.length;i++){ num += i*freq[i]; den += freq[i]; } const centroid = den? (num/den)/(freq.length-1) : 0; mat.color.setHSL(centroid, 0.9, 0.6); pts.rotation.y += 0.003 + centroid*0.01; mat.size = 0.02 + centroid*0.06; } } });
+
+  // (15) AV Constellations — symbol sprites pulsing on beats
+  addMode('AV Constellations', ()=>{
+    const g=new THREE.Group(); const chars='✦✺✹✸✷✶✳︎✴︎✵☼☯☸✧✠✢✥✺✹✻✽✾❖❂'; const N=80;
+    function makeSprite(ch){ const cvs=document.createElement('canvas'); cvs.width=cvs.height=128; const ctx=cvs.getContext('2d'); ctx.fillStyle='#000'; ctx.fillRect(0,0,128,128); ctx.font='96px serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; const grad=ctx.createRadialGradient(64,64,8,64,64,60); grad.addColorStop(0,'#fff'); grad.addColorStop(1,'#000'); ctx.fillStyle=grad; ctx.fillText(ch,64,72); const tex=new THREE.CanvasTexture(cvs); tex.needsUpdate=true; tex.transparent=true; return new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent:true, depthWrite:false })); }
+    for(let i=0;i<N;i++){ const s=makeSprite(chars[Math.floor(Math.random()*chars.length)]); const r=1+Math.random()*3; const th=Math.random()*Math.PI*2; const ph=Math.acos(2*Math.random()-1); s.position.set(r*Math.sin(ph)*Math.cos(th), r*Math.cos(ph), r*Math.sin(ph)*Math.sin(th)); s.scale.setScalar(0.5+Math.random()*1.2); g.add(s);} 
+    return { object:g, update(freq){ const {bass}=sampleBassMidTreble(freq); g.children.forEach((s,i)=>{ const f=freq[(i*5)%freq.length]/255; s.material.opacity = 0.2 + f*0.8; s.scale.setScalar(0.5 + f*1.8); }); g.rotation.y += 0.002 + bass/255*0.01; g.rotation.x = Math.sin(performance.now()*0.0006)*0.2; } } });
+
+  // (16) Synthesia Nerve Lattice — pulsing wire lattice
+  addMode('Synthesia Nerve Lattice', ()=>{
+    const g=new THREE.Group(); const size=12, step=1.5;
+    for(let x=-size;x<=size;x+=step){ for(let y=-size;y<=size;y+=step){ const geo=new THREE.BufferGeometry(); const verts=new Float32Array([x,y,-size, x,y,size]); geo.setAttribute('position', new THREE.BufferAttribute(verts,3)); const line=new THREE.Line(geo, new THREE.LineBasicMaterial({ transparent:true, opacity:0.6 })); g.add(line); } }
+    for(let z=-size;z<=size;z+=step){ for(let y=-size;y<=size;y+=step){ const geo=new THREE.BufferGeometry(); const verts=new Float32Array([-size,y,z, size,y,z]); geo.setAttribute('position', new THREE.BufferAttribute(verts,3)); const line=new THREE.Line(geo, new THREE.LineBasicMaterial({ transparent:true, opacity:0.6 })); g.add(line); } }
+    return { object:g, update(freq){ const {bass, mid, treb}=sampleBassMidTreble(freq); const hue=(0.65 + treb/255*0.35)%1; g.children.forEach((line,i)=>{ line.material.color.setHSL(hue, 0.8, 0.6); line.material.opacity = 0.3 + mid/255*0.6; }); g.rotation.y += 0.002 + bass/255*0.01; g.rotation.x += 0.0006; } } });
+
+  // ---------- Mode management ----------
+  const modeSelect = document.getElementById('mode');
+  modes.forEach((m,i)=>{
+    const opt=document.createElement('option'); opt.value=i; opt.textContent = `${i+1}. ${m.name}`; modeSelect.appendChild(opt);
+  });
+
+  let currentMode = null;
+  function buildMode(i){
+    clearRoot();
+    const { object, update } = modes[i].builder();
+    currentMode = { object, update };
+    root.add(object);
+  }
+  buildMode(0);
+
+  modeSelect.addEventListener('change', e=> buildMode(parseInt(e.target.value)));
+
+  // ---------- Controls ----------
+  const micBtn = document.getElementById('micBtn');
+  const recordBtn = document.getElementById('recordBtn');
+  const resetCam = document.getElementById('resetCam');
+  const clearBtn = document.getElementById('clearBtn');
+  const autorotate = document.getElementById('autorotate');
+  const spin = document.getElementById('spin');
+  const sensitivity = document.getElementById('sensitivity');
+  const smoothing = document.getElementById('smoothing');
+  const fft = document.getElementById('fft');
+  const sensVal = document.getElementById('sensVal');
+  const smoothVal = document.getElementById('smoothVal');
+  const fftVal = document.getElementById('fftVal');
+  const spinDur = document.getElementById('spinDur');
+  const spinRecord = document.getElementById('spinRecord');
+  const downloadLink = document.getElementById('downloadLink');
+
+  const sensitivityVal = ()=> parseFloat(sensitivity.value);
+
+  micBtn.onclick = enableMic;
+  autorotate.onchange = ()=> controls.autoRotate = autorotate.checked;
+  spin.oninput = ()=> controls.autoRotateSpeed = parseFloat(spin.value);
+  sensitivity.oninput = ()=> sensVal.textContent = (+sensitivity.value).toFixed(2);
+  smoothing.oninput = ()=> smoothVal.textContent = smoothing.value;
+  fft.oninput = ()=> fftVal.textContent = fft.value;
+
+  resetCam.onclick = ()=>{ camera.position.set(0, 2.8, 7); controls.target.set(0,0,0); controls.update(); };
+  clearBtn.onclick = ()=> buildMode(parseInt(modeSelect.value));
+
+  // Apply analyser updates when sliders change
+  [smoothing, fft].forEach(inp=> inp.addEventListener('change', ()=>{
+    if(!analyser) return; analyser.smoothingTimeConstant = parseFloat(smoothing.value); analyser.fftSize = parseInt(fft.value);
+    dataArray = new Uint8Array(analyser.frequencyBinCount); timeArray = new Uint8Array(analyser.fftSize);
+  }));
+
+  // ---------- Recording (WebM) ----------
+  let mediaRecorder=null, chunks=[]; let recording=false;
+
+  function startRecording(){
+    if(!('MediaRecorder' in window)) { alert('MediaRecorder not supported in this browser.'); return; }
+    const stream = renderer.domElement.captureStream(60);
+    try {
+      mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
+    } catch {
+      // fallback mime type
+      mediaRecorder = new MediaRecorder(stream);
+    }
+    chunks = [];
+    mediaRecorder.ondataavailable = e=>{ if(e.data.size>0) chunks.push(e.data); };
+    mediaRecorder.onstop = ()=>{
+      const blob = new Blob(chunks, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      downloadLink.href = url; downloadLink.download = `visualizer_${Date.now()}.webm`; downloadLink.style.display='inline-block';
+    };
+    mediaRecorder.start();
+    recordBtn.textContent = '⏹️ Stop'; recording = true; downloadLink.style.display='none';
+  }
+  function stopRecording(){
+    if(mediaRecorder && recording){ mediaRecorder.stop(); }
+    recordBtn.textContent = '⏺️ Record'; recording = false;
+  }
+  recordBtn.onclick = ()=> recording? stopRecording() : startRecording();
+
+  // One-spin record: completes one full 360° in given seconds and records it
+  spinRecord.onclick = async ()=>{
+    const sec = Math.max(3, Math.min(120, parseFloat(spinDur.value)||10));
+    const prevAuto = controls.autoRotate; const prevSpeed = controls.autoRotateSpeed;
+    controls.autoRotate = false;
+    startRecording();
+    const startYaw = Math.atan2(camera.position.x, camera.position.z);
+    const start = performance.now();
+    await new Promise(resolve=>{
+      function step(){
+        const t = (performance.now()-start)/1000;
+        const u = Math.min(1, t/sec);
+        const yaw = startYaw + u*Math.PI*2;
+        const radius = Math.hypot(camera.position.x, camera.position.z);
+        camera.position.x = Math.sin(yaw)*radius; camera.position.z = Math.cos(yaw)*radius; camera.lookAt(controls.target);
+        if(u<1) requestAnimationFrame(step); else resolve();
+      }
+      step();
+    });
+    stopRecording();
+    controls.autoRotate = prevAuto; controls.autoRotateSpeed = prevSpeed;
+  }
+
+  // Extra keybinds: [ and ] cycle modes
+  window.addEventListener('keydown', (e)=>{
+    if(e.key==='['){ let i=parseInt(modeSelect.value)||0; i=(i-1+modes.length)%modes.length; modeSelect.value=i; buildMode(i); }
+    if(e.key===']'){ let i=parseInt(modeSelect.value)||0; i=(i+1)%modes.length; modeSelect.value=i; buildMode(i); }
+  });
+
+  // ---------- Animation Loop ----------
+  const clock = new THREE.Clock();
+  function animate(){
+    requestAnimationFrame(animate);
+    controls.update();
+    if(analyser){ analyser.getByteFrequencyData(dataArray); }
+    if(currentMode){ currentMode.update?.(dataArray || new Uint8Array(0)); }
+    const t = clock.getElapsedTime();
+    hemi.intensity = 0.6 + Math.sin(t*0.6)*0.2;
+    dir.intensity = 0.5 + Math.cos(t*0.4)*0.2;
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // ---------- Shortcuts ----------
+  window.addEventListener('keydown', (e)=>{
+    if(e.code==='Space'){ e.preventDefault(); autorotate.checked=!autorotate.checked; autorotate.onchange(); }
+    if(e.key==='r' || e.key==='R'){ recordBtn.click(); }
+    if(e.key==='c' || e.key==='C'){ resetCam.click(); }
+    const idx = parseInt(e.key);
+    if(!isNaN(idx)){
+      const m = (idx===0)?9:idx-1; if(modes[m]){ modeSelect.value = m; buildMode(m); }
+    }
+  });
+
+  // ---------- Sanity Tests (log to console) ----------
+  (function runSanityTests(){
+    console.group('%cSanity Tests','color:#67e8f9');
+    console.assert(THREE && typeof THREE.WebGLRenderer === 'function', 'Three.js failed to load');
+    console.assert(typeof OrbitControls === 'function', 'OrbitControls failed to load');
+    console.assert(renderer && renderer.getContext(), 'WebGL renderer/context not initialized');
+    console.assert('mediaDevices' in navigator && typeof navigator.mediaDevices.getUserMedia === 'function', 'getUserMedia not available');
+    console.groupEnd();
+  })();
+
+  </script>
+</body>
+</html>
